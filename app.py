@@ -13,15 +13,22 @@ from contextlib import contextmanager
 import os, hashlib, base64
 
 # ─── CONFIGURACIÓN DE BASE DE DATOS ──────────────────────────────────────────
-# Primero busca en secrets de Streamlit, luego en variable de entorno
+# Soporta variables individuales PG_* O un DATABASE_URL completo
+_PG_HOST = _PG_USER = _PG_PASSWORD = _PG_DBNAME = _PG_PORT = ""
 DATABASE_URL = ""
 try:
+    _PG_HOST     = st.secrets.get("PG_HOST", "")
+    _PG_USER     = st.secrets.get("PG_USER", "")
+    _PG_PASSWORD = st.secrets.get("PG_PASSWORD", "")
+    _PG_DBNAME   = st.secrets.get("PG_DBNAME", "postgres")
+    _PG_PORT     = st.secrets.get("PG_PORT", "5432")
     DATABASE_URL = st.secrets.get("DATABASE_URL", "")
 except Exception:
     pass
 DATABASE_URL = DATABASE_URL or os.environ.get("DATABASE_URL", "")
+_PG_HOST     = _PG_HOST or os.environ.get("PG_HOST", "")
 
-USE_PG   = DATABASE_URL.startswith(("postgres://", "postgresql://"))
+USE_PG   = bool(_PG_HOST) or DATABASE_URL.startswith(("postgres://", "postgresql://"))
 DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(os.path.abspath(__file__)))
 DB_PATH  = os.path.join(DATA_DIR, "bar.db")
 
@@ -130,10 +137,18 @@ def db_conn():
     """Context manager: abre conexión (PG o SQLite), commit en éxito, rollback en error."""
     if USE_PG:
         import psycopg
-        url = DATABASE_URL
-        if "sslmode" not in url:
-            url += ("&" if "?" in url else "?") + "sslmode=require"
-        conn = psycopg.connect(url)
+        if _PG_HOST:
+            # Variables individuales — la contraseña puede tener caracteres especiales
+            conn = psycopg.connect(
+                host=_PG_HOST, port=int(_PG_PORT or 5432),
+                user=_PG_USER, password=_PG_PASSWORD,
+                dbname=_PG_DBNAME, sslmode="require"
+            )
+        else:
+            url = DATABASE_URL
+            if "sslmode" not in url:
+                url += ("&" if "?" in url else "?") + "sslmode=require"
+            conn = psycopg.connect(url)
     else:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     try:
