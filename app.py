@@ -129,8 +129,8 @@ hr { border-color:#2a2d4066 !important; }
 def db_conn():
     """Context manager: abre conexión (PG o SQLite), commit en éxito, rollback en error."""
     if USE_PG:
-        import psycopg2
-        conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+        import psycopg
+        conn = psycopg.connect(DATABASE_URL)
     else:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     try:
@@ -169,7 +169,12 @@ def exe_id(sql, p=()):
 
 def df(sql, p=()):
     with db_conn() as conn:
-        return pd.read_sql_query(_p(sql), conn, params=list(p))
+        cur = conn.cursor()
+        cur.execute(_p(sql), list(p) if p else [])
+        if cur.description:
+            cols = [desc[0] for desc in cur.description]
+            return pd.DataFrame(cur.fetchall(), columns=cols)
+        return pd.DataFrame()
 
 def insert_cur(cur, sql, p=()):
     """INSERT dentro de una transacción ya abierta; retorna el id."""
