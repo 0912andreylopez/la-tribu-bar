@@ -9,7 +9,7 @@ import sqlite3
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date, datetime, timedelta
-import os, hashlib
+import os, hashlib, base64
 
 # ─── RUTAS ───────────────────────────────────────────────────────────────────
 # En Railway: variable de entorno DATA_DIR=/data  (volumen persistente)
@@ -18,41 +18,218 @@ DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(os.path.abspath(__file__))
 DB_PATH  = os.path.join(DATA_DIR, "bar.db")
 
 st.set_page_config(
-    page_title="Bar & Licorera",
-    page_icon="🍺",
+    page_title="La Tribu · Cafe Bar",
+    page_icon="🪶",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ─── CSS ─────────────────────────────────────────────────────────────────────
+# ─── LOGO HELPER ─────────────────────────────────────────────────────────────
+def get_logo_b64():
+    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
+    if os.path.exists(logo_path):
+        with open(logo_path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    return None
+
+# ─── CSS PREMIUM — LA TRIBU ──────────────────────────────────────────────────
 st.markdown("""
 <style>
-[data-testid="stSidebar"]{background:#111827;}
-[data-testid="stSidebar"] *{color:#d1d5db !important;}
-.kpi{background:#1e293b;border-left:4px solid #3b82f6;padding:14px 18px;
-     border-radius:10px;margin-bottom:8px;}
-.kpi.green{border-left-color:#22c55e;}
-.kpi.red{border-left-color:#ef4444;}
-.kpi.yellow{border-left-color:#f59e0b;}
-.kpi.purple{border-left-color:#a855f7;}
-.kpi.orange{border-left-color:#f97316;}
-.kpi.blue{border-left-color:#3b82f6;}
-.kpi h4{margin:0;font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;}
-.kpi p{margin:4px 0 0;font-size:26px;font-weight:800;color:#f1f5f9;}
-.kpi small{color:#64748b;font-size:11px;}
-.mesa-card{background:#1e293b;border-radius:12px;padding:18px;margin:6px;
-           border:2px solid #334155;text-align:center;cursor:pointer;}
-.mesa-libre{border-color:#22c55e;}
-.mesa-ocupada{border-color:#f59e0b;}
-.mesa-cuenta{border-color:#ef4444;}
-.mesa-titulo{font-size:20px;font-weight:800;color:#f1f5f9;margin:0;}
-.mesa-estado{font-size:12px;margin:4px 0;}
-.mesa-info{font-size:13px;color:#94a3b8;}
-.persona-chip{display:inline-block;background:#1e3a5f;color:#93c5fd;
-              padding:3px 10px;border-radius:20px;font-size:12px;
-              font-weight:700;margin:2px;}
-.badge-admin{background:#1e3a5f;color:#93c5fd;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;}
-.badge-cajero{background:#1a3a2a;color:#86efac;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;}
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Inter:wght@400;500;600;700;800&display=swap');
+
+/* ── Fondo global ── */
+.stApp { background: #12141f; }
+.main .block-container { padding-top: 1.5rem; }
+
+/* ── Sidebar premium ── */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #0d0f1a 0%, #12141f 60%, #0d0f1a 100%) !important;
+    border-right: 1px solid #c8941a33;
+}
+[data-testid="stSidebar"] * { color: #e2c97e !important; }
+[data-testid="stSidebar"] .stRadio label { color: #d1c5a0 !important; font-family: 'Inter', sans-serif; }
+[data-testid="stSidebar"] hr { border-color: #c8941a44 !important; }
+
+/* ── Marca en sidebar ── */
+.tribu-brand {
+    text-align: center;
+    padding: 12px 0 8px 0;
+    border-bottom: 1px solid #c8941a44;
+    margin-bottom: 12px;
+}
+.tribu-brand .brand-name {
+    font-family: 'Cinzel', serif;
+    font-size: 22px;
+    font-weight: 900;
+    background: linear-gradient(135deg, #c8941a, #f5d07a, #c8941a);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: 3px;
+    margin: 6px 0 2px 0;
+    display: block;
+}
+.tribu-brand .brand-sub {
+    font-size: 10px;
+    color: #8a7450 !important;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+}
+.tribu-logo-sidebar {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    border: 2px solid #c8941a66;
+    object-fit: cover;
+    display: block;
+    margin: 0 auto;
+}
+
+/* ── KPI cards ── */
+.kpi {
+    background: linear-gradient(135deg, #1a1d2e 0%, #1e2135 100%);
+    border-left: 4px solid #c8941a;
+    padding: 14px 18px;
+    border-radius: 12px;
+    margin-bottom: 10px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+}
+.kpi.green  { border-left-color: #22c55e; }
+.kpi.red    { border-left-color: #ef4444; }
+.kpi.yellow { border-left-color: #f59e0b; }
+.kpi.purple { border-left-color: #a855f7; }
+.kpi.orange { border-left-color: #f97316; }
+.kpi.blue   { border-left-color: #3b82f6; }
+.kpi.gold   { border-left-color: #c8941a; }
+.kpi h4 { margin:0; font-size:10px; color:#8a7450; text-transform:uppercase; letter-spacing:.08em; font-family:'Inter',sans-serif; }
+.kpi p  { margin:4px 0 0; font-size:26px; font-weight:800; color:#f5d07a; font-family:'Inter',sans-serif; }
+.kpi small { color:#5a5033; font-size:11px; }
+
+/* ── Mesas cards ── */
+.mesa-card {
+    background: linear-gradient(135deg, #1a1d2e, #1e2135);
+    border-radius: 14px;
+    padding: 20px 14px;
+    margin: 6px 0;
+    border: 2px solid #2a2d40;
+    text-align: center;
+    transition: transform 0.15s;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+.mesa-card:hover { transform: translateY(-2px); }
+.mesa-titulo { font-size:19px; font-weight:800; color:#f5d07a; margin:0; font-family:'Inter',sans-serif; }
+.mesa-estado { font-size:12px; margin:4px 0; font-weight:600; }
+.mesa-info   { font-size:12px; color:#8a7450; margin:2px 0; }
+
+/* ── Chips de persona ── */
+.persona-chip {
+    display:inline-block;
+    background: #2a1e0a;
+    border: 1px solid #c8941a66;
+    color: #f5d07a !important;
+    padding: 3px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+    margin: 3px;
+}
+
+/* ── Badges ── */
+.badge-admin  { background:#2a1e0a; color:#f5d07a; border:1px solid #c8941a; padding:2px 10px; border-radius:20px; font-size:11px; font-weight:700; }
+.badge-cajero { background:#0a2a15; color:#86efac; border:1px solid #22c55e66; padding:2px 10px; border-radius:20px; font-size:11px; font-weight:700; }
+.badge-barman { background:#2a0a0a; color:#fca5a5; border:1px solid #ef444466; padding:2px 10px; border-radius:20px; font-size:11px; font-weight:700; }
+
+/* ── Tabs ── */
+.stTabs [data-baseweb="tab"] {
+    color: #8a7450;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+}
+.stTabs [aria-selected="true"] {
+    color: #f5d07a !important;
+    border-bottom: 2px solid #c8941a !important;
+}
+
+/* ── Botones ── */
+.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, #c8941a, #a87515) !important;
+    border: none !important;
+    color: #12141f !important;
+    font-weight: 700 !important;
+    border-radius: 8px !important;
+    letter-spacing: 0.5px;
+}
+.stButton > button[kind="primary"]:hover {
+    background: linear-gradient(135deg, #f5d07a, #c8941a) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 15px rgba(200,148,26,0.4) !important;
+}
+
+/* ── Inputs ── */
+.stTextInput > div > div > input,
+.stNumberInput > div > div > input,
+.stSelectbox > div > div {
+    background: #1a1d2e !important;
+    border: 1px solid #2a2d40 !important;
+    color: #e2c97e !important;
+    border-radius: 8px !important;
+}
+.stTextInput > div > div > input:focus {
+    border-color: #c8941a !important;
+    box-shadow: 0 0 0 2px rgba(200,148,26,0.2) !important;
+}
+
+/* ── Dataframe ── */
+.stDataFrame { border-radius: 10px; overflow: hidden; }
+[data-testid="stDataFrameResizable"] { border: 1px solid #2a2d40 !important; }
+
+/* ── Divider ── */
+hr { border-color: #2a2d4066 !important; }
+
+/* ── Página de login ── */
+.login-box {
+    background: linear-gradient(145deg, #1a1d2e, #0d0f1a);
+    border: 1px solid #c8941a33;
+    border-radius: 20px;
+    padding: 40px 36px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.7), 0 0 40px rgba(200,148,26,0.08);
+    margin-top: 40px;
+}
+.login-titulo {
+    font-family: 'Cinzel', serif;
+    font-size: 34px;
+    font-weight: 900;
+    background: linear-gradient(135deg, #c8941a 0%, #f5d07a 50%, #c8941a 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-align: center;
+    letter-spacing: 5px;
+    margin: 10px 0 4px 0;
+}
+.login-sub {
+    text-align: center;
+    color: #5a5033;
+    font-size: 11px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    margin-bottom: 24px;
+}
+.login-logo {
+    display: block;
+    margin: 0 auto 16px auto;
+    width: 110px;
+    border-radius: 50%;
+    border: 3px solid #c8941a66;
+    box-shadow: 0 0 30px rgba(200,148,26,0.3);
+}
+.ornament {
+    text-align: center;
+    color: #c8941a44;
+    font-size: 14px;
+    letter-spacing: 8px;
+    margin: 8px 0;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -233,15 +410,25 @@ def df(sql, p=()):
 
 # ─── LOGIN ───────────────────────────────────────────────────────────────────
 def login():
-    _, col, _ = st.columns([1, 1.2, 1])
+    _, col, _ = st.columns([1, 1.1, 1])
     with col:
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        st.markdown("## 🍺 Bar & Licorera")
-        st.markdown("##### Sistema de gestión")
-        st.divider()
-        u = st.text_input("Usuario")
-        p = st.text_input("Contraseña", type="password")
-        if st.button("Ingresar", use_container_width=True, type="primary"):
+        logo_b64 = get_logo_b64()
+        logo_html = f'<img src="data:image/png;base64,{logo_b64}" class="login-logo">' if logo_b64 else '<div style="text-align:center;font-size:48px;margin-bottom:8px;">🪶</div>'
+
+        st.markdown(f"""
+        <div class="login-box">
+            {logo_html}
+            <div class="login-titulo">LA TRIBU</div>
+            <div class="login-sub">Cafe · Bar · Sistema de gestión</div>
+            <div class="ornament">◆ · · · ◆ · · · ◆</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        u = st.text_input("👤  Usuario")
+        p = st.text_input("🔒  Contraseña", type="password")
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("INGRESAR", use_container_width=True, type="primary"):
             row = qry("SELECT username,rol FROM usuarios WHERE username=? AND password=? AND activo=1",
                       (u, hsh(p)), one=True)
             if row:
@@ -249,8 +436,9 @@ def login():
                 st.session_state.rol  = row[1]
                 st.rerun()
             else:
-                st.error("Credenciales incorrectas")
-        st.caption("Usuario inicial: admin / admin123")
+                st.error("Usuario o contraseña incorrectos")
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.caption("🔑 Acceso inicial: admin · admin123")
 
 # ─── DASHBOARD ───────────────────────────────────────────────────────────────
 def page_dashboard():
@@ -1268,10 +1456,25 @@ def main():
         login(); return
 
     with st.sidebar:
-        st.markdown("### 🍺 Bar & Licorera")
+        logo_b64 = get_logo_b64()
+        logo_html = f'<img src="data:image/png;base64,{logo_b64}" class="tribu-logo-sidebar">' if logo_b64 else '<div style="text-align:center;font-size:36px">🪶</div>'
+        st.markdown(f"""
+        <div class="tribu-brand">
+            {logo_html}
+            <span class="brand-name">LA TRIBU</span>
+            <span class="brand-sub">Cafe · Bar</span>
+        </div>
+        """, unsafe_allow_html=True)
+
         rol = st.session_state.rol
-        badge = '<span class="badge-admin">ADMIN</span>' if rol == "admin" else f'<span class="badge-cajero">{rol.upper()}</span>'
-        st.markdown(f"**{st.session_state.user}** {badge}", unsafe_allow_html=True)
+        if rol == "admin":
+            badge = '<span class="badge-admin">⚡ ADMIN</span>'
+        elif rol == "barman":
+            badge = '<span class="badge-barman">🍹 BARMAN</span>'
+        else:
+            badge = '<span class="badge-cajero">💼 CAJERO</span>'
+        st.markdown(f"<div style='text-align:center;margin:8px 0'>{badge}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='text-align:center;color:#5a5033;font-size:12px;margin-bottom:8px'>👤 {st.session_state.user}</div>", unsafe_allow_html=True)
         st.divider()
         pagina = st.radio("Ir a", [
             "🏠 Dashboard",
