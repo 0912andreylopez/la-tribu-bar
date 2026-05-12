@@ -130,7 +130,10 @@ def db_conn():
     """Context manager: abre conexión (PG o SQLite), commit en éxito, rollback en error."""
     if USE_PG:
         import psycopg
-        conn = psycopg.connect(DATABASE_URL)
+        url = DATABASE_URL
+        if "sslmode" not in url:
+            url += ("&" if "?" in url else "?") + "sslmode=require"
+        conn = psycopg.connect(url)
     else:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     try:
