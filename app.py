@@ -320,11 +320,11 @@ def init_db():
                 cur.execute(_p("INSERT INTO mesas(numero,nombre,capacidad,estado) VALUES(%s,%s,%s,%s)"),
                             (i, f"Mesa {i}", 4, "libre"))
 
-init_db()
-
 # ─── HELPERS ─────────────────────────────────────────────────────────────────
 def hsh(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
+
+init_db()
 
 def kpi(titulo, valor, sub="", color=""):
     cls = f"kpi {color}" if color else "kpi"
