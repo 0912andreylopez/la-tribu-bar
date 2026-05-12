@@ -300,8 +300,7 @@ def init_db():
         cur.execute("SELECT COUNT(*) FROM usuarios")
         if cur.fetchone()[0] == 0:
             cur.execute(
-                f"INSERT {IGN} INTO usuarios(username,password,rol) VALUES(%s,%s,%s)",
-                ("admin", hsh("admin123"), "admin") if USE_PG else
+                _p("INSERT INTO usuarios(username,password,rol) VALUES(%s,%s,%s)"),
                 ("admin", hsh("admin123"), "admin"))
 
         # Categorías
