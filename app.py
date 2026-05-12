@@ -132,33 +132,35 @@ hr { border-color:#2a2d4066 !important; }
 """, unsafe_allow_html=True)
 
 # ─── CAPA DE BASE DE DATOS ────────────────────────────────────────────────────
+@st.cache_resource
+def _pg_pool():
+    """Pool de conexiones PostgreSQL — se crea una vez y se reutiliza (más rápido)."""
+    from psycopg_pool import ConnectionPool
+    if _PG_HOST:
+        conninfo = (f"host={_PG_HOST} port={int(_PG_PORT or 5432)} "
+                    f"user={_PG_USER} password={_PG_PASSWORD} "
+                    f"dbname={_PG_DBNAME} sslmode=require")
+    else:
+        url = DATABASE_URL
+        conninfo = url + ("&" if "?" in url else "?") + "sslmode=require"
+    return ConnectionPool(conninfo, min_size=1, max_size=4, open=True)
+
 @contextmanager
 def db_conn():
-    """Context manager: abre conexión (PG o SQLite), commit en éxito, rollback en error."""
+    """Context manager: toma conexión del pool (PG) o abre SQLite."""
     if USE_PG:
-        import psycopg
-        if _PG_HOST:
-            # Variables individuales — la contraseña puede tener caracteres especiales
-            conn = psycopg.connect(
-                host=_PG_HOST, port=int(_PG_PORT or 5432),
-                user=_PG_USER, password=_PG_PASSWORD,
-                dbname=_PG_DBNAME, sslmode="require"
-            )
-        else:
-            url = DATABASE_URL
-            if "sslmode" not in url:
-                url += ("&" if "?" in url else "?") + "sslmode=require"
-            conn = psycopg.connect(url)
+        with _pg_pool().connection() as conn:
+            yield conn
     else:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
 def _p(sql: str) -> str:
     """Convierte %s → ? para SQLite."""
