@@ -205,6 +205,48 @@ def insert_cur(cur, sql, p=()):
         cur.execute(_p(sql), p)
         return cur.lastrowid
 
+# ─── CACHÉ DE CONSULTAS FRECUENTES ────────────────────────────────────────────
+# Evita abrir conexión a Supabase en cada página. TTL = segundos de validez.
+
+@st.cache_data(ttl=45)
+def _cache_prods_venta():
+    """Productos con stock > 0 para caja y mesas (refresca cada 45s)."""
+    return df("""SELECT p.id,p.codigo,p.nombre,p.precio_venta,p.stock,c.nombre as cat
+                 FROM productos p LEFT JOIN categorias c ON p.categoria_id=c.id
+                 WHERE p.activo=1 AND p.stock>0 ORDER BY c.nombre,p.nombre""")
+
+@st.cache_data(ttl=45)
+def _cache_prods_mesa():
+    """Productos con stock para el módulo de mesas."""
+    return df("""SELECT p.id,p.nombre,p.precio_venta,c.nombre as cat
+                 FROM productos p LEFT JOIN categorias c ON p.categoria_id=c.id
+                 WHERE p.activo=1 AND p.stock>0 ORDER BY c.nombre,p.nombre""")
+
+@st.cache_data(ttl=45)
+def _cache_prods_inv():
+    """Todos los productos activos para inventario."""
+    return df("SELECT id,nombre,stock FROM productos WHERE activo=1 ORDER BY nombre")
+
+@st.cache_data(ttl=120)
+def _cache_cats_nombres():
+    return [r[0] for r in qry("SELECT nombre FROM categorias ORDER BY nombre")]
+
+@st.cache_data(ttl=120)
+def _cache_cats_dict():
+    return {r[0]:r[1] for r in qry("SELECT nombre,id FROM categorias ORDER BY nombre")}
+
+@st.cache_data(ttl=120)
+def _cache_provs_list():
+    return qry("SELECT id,nombre FROM proveedores WHERE activo=1 ORDER BY nombre")
+
+@st.cache_data(ttl=120)
+def _cache_provs_dict():
+    return {r[0]:r[1] for r in qry("SELECT nombre,id FROM proveedores WHERE activo=1 ORDER BY nombre")}
+
+@st.cache_data(ttl=120)
+def _cache_emps():
+    return qry("SELECT id,nombre,tarifa_hora FROM empleados WHERE activo=1 ORDER BY nombre")
+
 # ─── INIT DB ─────────────────────────────────────────────────────────────────
 def init_db():
     SER = "BIGSERIAL" if USE_PG else "INTEGER"
@@ -523,9 +565,7 @@ def _detalle_mesa(mesa_id):
         c2.markdown(kpi("Ronda actual",f"#{_ronda_actual(mesa_id)+1}",f"{len(personas)} personas","blue"),unsafe_allow_html=True)
 
         st.markdown("---")
-        prods_d = df("""SELECT p.id,p.nombre,p.precio_venta,c.nombre as cat
-                        FROM productos p LEFT JOIN categorias c ON p.categoria_id=c.id
-                        WHERE p.activo=1 AND p.stock>0 ORDER BY c.nombre,p.nombre""")
+        prods_d = _cache_prods_mesa()
         if prods_d.empty:
             st.warning("Sin productos disponibles en inventario.")
         else:
@@ -731,7 +771,7 @@ def page_inventario():
     tab1,tab2,tab3=st.tabs(["📋 Productos","➕ Nuevo producto","📥 Entrada de stock"])
 
     with tab1:
-        cats_l=["Todas"]+[r[0] for r in qry("SELECT nombre FROM categorias ORDER BY nombre")]
+        cats_l=["Todas"]+_cache_cats_nombres()
         c1,c2=st.columns(2)
         fcat=c1.selectbox("Categoría",cats_l)
         sbaj=c2.checkbox("Solo stock bajo")
@@ -748,8 +788,8 @@ def page_inventario():
         else: st.info("No hay productos.")
 
     with tab2:
-        cats2={r[0]:r[1] for r in qry("SELECT nombre,id FROM categorias ORDER BY nombre")}
-        provs2={r[0]:r[1] for r in qry("SELECT nombre,id FROM proveedores WHERE activo=1 ORDER BY nombre")}
+        cats2=_cache_cats_dict()
+        provs2=_cache_provs_dict()
         provs2["(Sin proveedor)"]=None
         with st.form("np"):
             c1,c2=st.columns(2)
@@ -766,12 +806,13 @@ def page_inventario():
                 elif qry("SELECT 1 FROM productos WHERE codigo=%s",(cod,),one=True): st.error("Código ya existe.")
                 else:
                     exe("INSERT INTO productos(codigo,nombre,categoria_id,proveedor_id,precio_venta,precio_costo,stock,stock_minimo,unidad) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                        (cod,nom,cats2[cat],provs2[prov],pv,pc,si,sm,uni))
+                        (cod,nom,cats2[cat],provs2.get(prov),pv,pc,si,sm,uni))
+                    st.cache_data.clear()
                     st.success(f"'{nom}' creado."); st.rerun()
 
     with tab3:
-        prods3=df("SELECT id,nombre,stock FROM productos WHERE activo=1 ORDER BY nombre")
-        provs3=qry("SELECT id,nombre FROM proveedores WHERE activo=1 ORDER BY nombre")
+        prods3=_cache_prods_inv()
+        provs3=_cache_provs_list()
         if prods3.empty: st.warning("Crea productos primero.")
         else:
             with st.form("ent"):
@@ -813,9 +854,7 @@ def page_caja():
 
     with tab1:
         if "carrito_caja" not in st.session_state: st.session_state.carrito_caja=[]
-        prods_c=df("""SELECT p.id,p.codigo,p.nombre,p.precio_venta,p.stock,c.nombre as cat
-                      FROM productos p LEFT JOIN categorias c ON p.categoria_id=c.id
-                      WHERE p.activo=1 AND p.stock>0 ORDER BY c.nombre,p.nombre""")
+        prods_c=_cache_prods_venta()
         col_l,col_r=st.columns([3,2])
         with col_l:
             if prods_c.empty: st.warning("Sin productos.")
@@ -916,10 +955,11 @@ def page_nomina():
                     else:
                         exe("INSERT INTO empleados(nombre,cedula,cargo,telefono,tarifa_hora,fecha_ingreso) VALUES(%s,%s,%s,%s,%s,%s)",
                             (nom_e,ced_e,car_e,tel_e,tar_e,fi_e.isoformat()))
+                        st.cache_data.clear()
                         st.success("Empleado creado."); st.rerun()
 
     with tab2:
-        emps2=qry("SELECT id,nombre,tarifa_hora FROM empleados WHERE activo=1 ORDER BY nombre")
+        emps2=_cache_emps()
         if not emps2: st.warning("No hay empleados.")
         else:
             ed2={r[1]:r[0] for r in emps2}; et2={r[1]:r[2] for r in emps2}
@@ -948,7 +988,7 @@ def page_nomina():
                 st.markdown("**Horas pendientes:**"); st.dataframe(pen,use_container_width=True,hide_index=True)
 
     with tab3:
-        emps3=qry("SELECT id,nombre,tarifa_hora FROM empleados WHERE activo=1 ORDER BY nombre")
+        emps3=_cache_emps()
         if not emps3: st.warning("No hay empleados.")
         else:
             ed3={r[1]:(r[0],r[2]) for r in emps3}
@@ -1010,6 +1050,7 @@ def page_proveedores():
                 if not np_: st.error("Nombre requerido.")
                 else:
                     exe("INSERT INTO proveedores(nombre,contacto,telefono,email,nit) VALUES(%s,%s,%s,%s,%s)",(np_,nc_,nt_,ne_,nn_))
+                    st.cache_data.clear()
                     st.success(f"'{np_}' creado."); st.rerun()
 
 # ─── GASTOS ──────────────────────────────────────────────────────────────────
