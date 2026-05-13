@@ -768,23 +768,24 @@ def _cuenta_cobro(mesa_id, personas, mnombre, mestado):
 # ─── INVENTARIO ──────────────────────────────────────────────────────────────
 def page_inventario():
     st.markdown("## 📦 Inventario")
-    tab1,tab2,tab3=st.tabs(["📋 Productos","➕ Nuevo producto","📥 Entrada de stock"])
+    tab1,tab2,tab3,tab4=st.tabs(["📋 Productos","➕ Nuevo producto","📥 Entrada de stock","✏️ Editar / Eliminar"])
 
     with tab1:
         cats_l=["Todas"]+_cache_cats_nombres()
         c1,c2=st.columns(2)
         fcat=c1.selectbox("Categoría",cats_l)
         sbaj=c2.checkbox("Solo stock bajo")
-        sql2="SELECT p.codigo,p.nombre,c.nombre as cat,p.precio_venta,p.precio_costo,p.stock,p.stock_minimo,p.unidad FROM productos p LEFT JOIN categorias c ON p.categoria_id=c.id WHERE p.activo=1"
+        sql2="SELECT p.id,p.codigo,p.nombre,c.nombre as cat,p.precio_venta,p.precio_costo,p.stock,p.stock_minimo,p.unidad FROM productos p LEFT JOIN categorias c ON p.categoria_id=c.id WHERE p.activo=1"
         par2=[]
         if fcat!="Todas": sql2+=" AND c.nombre=%s"; par2.append(fcat)
         if sbaj: sql2+=" AND p.stock<=p.stock_minimo"
         sql2+=" ORDER BY p.nombre"
         inv=df(sql2,par2)
         if not inv.empty:
-            inv["Estado"]=inv.apply(lambda r:"🔴 Bajo" if r["stock"]<=r["stock_minimo"] else "🟢 OK",axis=1)
-            inv.columns=["Código","Nombre","Categoría","Precio Venta","Precio Costo","Stock","Stock Mín.","Unidad","Estado"]
-            st.dataframe(inv,use_container_width=True,hide_index=True)
+            inv_show=inv.copy()
+            inv_show["Estado"]=inv_show.apply(lambda r:"🔴 Bajo" if r["stock"]<=r["stock_minimo"] else "🟢 OK",axis=1)
+            inv_show.columns=["ID","Código","Nombre","Categoría","Precio Venta","Precio Costo","Stock","Stock Mín.","Unidad","Estado"]
+            st.dataframe(inv_show,use_container_width=True,hide_index=True)
         else: st.info("No hay productos.")
 
     with tab2:
@@ -844,7 +845,70 @@ def page_inventario():
                                 cur.execute(_p("INSERT INTO detalle_compras(compra_id,producto_id,nombre_producto,cantidad,precio_unitario,subtotal) VALUES(%s,%s,%s,%s,%s,%s)"),
                                     (cid,pid_e,pn_e,ca_e,co_e,ca_e*co_e))
                                 cur.execute(_p("UPDATE productos SET stock=stock+%s WHERE id=%s"),(ca_e,pid_e))
+                        st.cache_data.clear()
                         st.success(f"Entrada registrada. Total: {fmt(total_e)}"); st.rerun()
+
+    with tab4:
+        st.markdown("#### ✏️ Editar producto")
+        todos_p=df("SELECT id,codigo,nombre,precio_venta,precio_costo,stock,stock_minimo,unidad,categoria_id,proveedor_id FROM productos WHERE activo=1 ORDER BY nombre")
+        if todos_p.empty:
+            st.info("No hay productos.");
+        else:
+            nombres_p=todos_p["nombre"].tolist()
+            sel_ed=st.selectbox("Selecciona producto",nombres_p,key="ed_sel")
+            row_ed=todos_p[todos_p["nombre"]==sel_ed].iloc[0]
+            cats_ed=_cache_cats_dict(); provs_ed=_cache_provs_dict(); provs_ed["(Sin proveedor)"]=None
+            cat_names=list(cats_ed.keys())
+            prov_names=list(provs_ed.keys())
+            # Buscar valores actuales
+            cat_actual=next((k for k,v in cats_ed.items() if v==row_ed["categoria_id"]),cat_names[0])
+            prov_actual=next((k for k,v in provs_ed.items() if v==row_ed["proveedor_id"]),"(Sin proveedor)")
+
+            with st.form("edit_prod"):
+                c1,c2=st.columns(2)
+                new_nom=c1.text_input("Nombre",value=row_ed["nombre"])
+                new_cod=c2.text_input("Código",value=row_ed["codigo"])
+                new_cat=c1.selectbox("Categoría",cat_names,index=cat_names.index(cat_actual) if cat_actual in cat_names else 0)
+                new_prov=c2.selectbox("Proveedor",prov_names,index=prov_names.index(prov_actual) if prov_actual in prov_names else 0)
+                new_pv=c1.number_input("Precio venta",min_value=0.0,step=500.0,value=float(row_ed["precio_venta"]))
+                new_pc=c2.number_input("Precio costo",min_value=0.0,step=500.0,value=float(row_ed["precio_costo"]))
+                new_sm=c1.number_input("Stock mínimo",min_value=0.0,step=1.0,value=float(row_ed["stock_minimo"]))
+                new_uni=c2.text_input("Unidad",value=str(row_ed["unidad"]))
+                if st.form_submit_button("💾 Guardar cambios",type="primary"):
+                    exe("UPDATE productos SET nombre=%s,codigo=%s,categoria_id=%s,proveedor_id=%s,precio_venta=%s,precio_costo=%s,stock_minimo=%s,unidad=%s WHERE id=%s",
+                        (new_nom,new_cod,cats_ed[new_cat],provs_ed.get(new_prov),new_pv,new_pc,new_sm,new_uni,int(row_ed["id"])))
+                    st.cache_data.clear(); st.success("✅ Producto actualizado."); st.rerun()
+
+            st.markdown("---")
+            st.markdown("#### 📦 Ajustar stock manualmente")
+            with st.form("ajust_stock"):
+                c1,c2,c3=st.columns(3)
+                prod_aj=c1.selectbox("Producto",nombres_p,key="aj_prod")
+                tipo_aj=c2.selectbox("Tipo",["➕ Agregar","➖ Descontar","🔄 Establecer"])
+                cant_aj=c3.number_input("Cantidad",min_value=0.0,step=1.0)
+                mot_aj=st.text_input("Motivo (opcional)")
+                if st.form_submit_button("Aplicar ajuste",type="primary"):
+                    pid_aj=int(todos_p[todos_p["nombre"]==prod_aj]["id"].values[0])
+                    if tipo_aj=="➕ Agregar":
+                        exe("UPDATE productos SET stock=stock+%s WHERE id=%s",(cant_aj,pid_aj))
+                    elif tipo_aj=="➖ Descontar":
+                        exe("UPDATE productos SET stock=GREATEST(stock-%s,0) WHERE id=%s",(cant_aj,pid_aj)) if USE_PG else exe("UPDATE productos SET stock=MAX(stock-%s,0) WHERE id=%s",(cant_aj,pid_aj))
+                    else:
+                        exe("UPDATE productos SET stock=%s WHERE id=%s",(cant_aj,pid_aj))
+                    st.cache_data.clear(); st.success(f"Stock de '{prod_aj}' ajustado."); st.rerun()
+
+            st.markdown("---")
+            st.markdown("#### 🗑️ Eliminar producto")
+            st.warning("⚠️ Eliminar oculta el producto del sistema. El historial de ventas se conserva.")
+            with st.form("del_prod"):
+                prod_del=st.selectbox("Producto a eliminar",nombres_p,key="del_prod_sel")
+                confirmar=st.checkbox("Confirmo que quiero eliminar este producto")
+                if st.form_submit_button("🗑️ Eliminar",type="primary"):
+                    if not confirmar: st.error("Marca la casilla de confirmación.")
+                    else:
+                        pid_del=int(todos_p[todos_p["nombre"]==prod_del]["id"].values[0])
+                        exe("UPDATE productos SET activo=0 WHERE id=%s",(pid_del,))
+                        st.cache_data.clear(); st.success(f"'{prod_del}' eliminado."); st.rerun()
 
 # ─── CAJA RÁPIDA ─────────────────────────────────────────────────────────────
 def page_caja():
@@ -933,7 +997,7 @@ RECARGO={"Normal":1.0,"Nocturno":1.35,"Dominical/Festivo":1.75,"Extra diurno":1.
 
 def page_nomina():
     st.markdown("## 👥 Nómina por horas")
-    tab1,tab2,tab3,tab4=st.tabs(["👤 Empleados","⏱ Horas","💰 Liquidar","📋 Historial"])
+    tab1,tab2,tab3,tab4,tab5=st.tabs(["👤 Empleados","⏱ Horas","💰 Liquidar","📋 Historial","✏️ Editar empleado"])
 
     with tab1:
         c_l,c_r=st.columns(2)
@@ -1031,10 +1095,40 @@ def page_nomina():
             st.dataframe(hn,use_container_width=True,hide_index=True)
         else: st.info("Sin pagos.")
 
+    with tab5:
+        st.markdown("#### ✏️ Editar o dar de baja empleado")
+        emps_ed=df("SELECT id,nombre,cedula,cargo,telefono,tarifa_hora FROM empleados WHERE activo=1 ORDER BY nombre")
+        if emps_ed.empty: st.info("No hay empleados.")
+        else:
+            sel_emp=st.selectbox("Empleado",emps_ed["nombre"].tolist(),key="emp_ed_sel")
+            row_emp=emps_ed[emps_ed["nombre"]==sel_emp].iloc[0]
+            with st.form("edit_emp"):
+                c1,c2=st.columns(2)
+                new_ne=c1.text_input("Nombre",value=row_emp["nombre"])
+                new_ce=c2.text_input("Cédula",value=str(row_emp["cedula"]))
+                new_car=c1.selectbox("Cargo",["Barman","Mesero/a","Cajero/a","Domiciliario","Vigilante","Administrador","Otro"],
+                                     index=["Barman","Mesero/a","Cajero/a","Domiciliario","Vigilante","Administrador","Otro"].index(row_emp["cargo"]) if row_emp["cargo"] in ["Barman","Mesero/a","Cajero/a","Domiciliario","Vigilante","Administrador","Otro"] else 0)
+                new_tel=c2.text_input("Teléfono",value=str(row_emp["telefono"] or ""))
+                new_tar=c1.number_input("Tarifa/hora ($)",min_value=0.0,step=500.0,value=float(row_emp["tarifa_hora"]))
+                if st.form_submit_button("💾 Guardar",type="primary"):
+                    exe("UPDATE empleados SET nombre=%s,cedula=%s,cargo=%s,telefono=%s,tarifa_hora=%s WHERE id=%s",
+                        (new_ne,new_ce,new_car,new_tel,new_tar,int(row_emp["id"])))
+                    st.cache_data.clear(); st.success("✅ Empleado actualizado."); st.rerun()
+            st.markdown("---")
+            with st.form("del_emp"):
+                emp_baja=st.selectbox("Dar de baja",emps_ed["nombre"].tolist(),key="emp_baja_sel")
+                conf_baja=st.checkbox("Confirmo dar de baja a este empleado")
+                if st.form_submit_button("🚫 Dar de baja"):
+                    if not conf_baja: st.error("Marca la casilla de confirmación.")
+                    else:
+                        eid_baja=int(emps_ed[emps_ed["nombre"]==emp_baja]["id"].values[0])
+                        exe("UPDATE empleados SET activo=0 WHERE id=%s",(eid_baja,))
+                        st.cache_data.clear(); st.success(f"'{emp_baja}' dado de baja."); st.rerun()
+
 # ─── PROVEEDORES ─────────────────────────────────────────────────────────────
 def page_proveedores():
     st.markdown("## 🏪 Proveedores")
-    tab1,tab2=st.tabs(["📋 Lista","➕ Nuevo"])
+    tab1,tab2,tab3=st.tabs(["📋 Lista","➕ Nuevo","✏️ Editar / Eliminar"])
     with tab1:
         pv=df("SELECT id,nombre,contacto,telefono,email,nit FROM proveedores WHERE activo=1 ORDER BY nombre")
         if not pv.empty:
@@ -1052,6 +1146,35 @@ def page_proveedores():
                     exe("INSERT INTO proveedores(nombre,contacto,telefono,email,nit) VALUES(%s,%s,%s,%s,%s)",(np_,nc_,nt_,ne_,nn_))
                     st.cache_data.clear()
                     st.success(f"'{np_}' creado."); st.rerun()
+
+    with tab3:
+        st.markdown("#### ✏️ Editar o eliminar proveedor")
+        provs_ed=df("SELECT id,nombre,contacto,telefono,email,nit FROM proveedores WHERE activo=1 ORDER BY nombre")
+        if provs_ed.empty: st.info("No hay proveedores.")
+        else:
+            sel_pv=st.selectbox("Proveedor",provs_ed["nombre"].tolist(),key="pv_ed_sel")
+            row_pv=provs_ed[provs_ed["nombre"]==sel_pv].iloc[0]
+            with st.form("edit_prov"):
+                c1,c2=st.columns(2)
+                new_np=c1.text_input("Nombre",value=row_pv["nombre"])
+                new_nc=c2.text_input("Contacto",value=str(row_pv["contacto"] or ""))
+                new_nt=c1.text_input("Teléfono",value=str(row_pv["telefono"] or ""))
+                new_ne=c2.text_input("Email",value=str(row_pv["email"] or ""))
+                new_nn=st.text_input("NIT",value=str(row_pv["nit"] or ""))
+                if st.form_submit_button("💾 Guardar",type="primary"):
+                    exe("UPDATE proveedores SET nombre=%s,contacto=%s,telefono=%s,email=%s,nit=%s WHERE id=%s",
+                        (new_np,new_nc,new_nt,new_ne,new_nn,int(row_pv["id"])))
+                    st.cache_data.clear(); st.success("✅ Proveedor actualizado."); st.rerun()
+            st.markdown("---")
+            with st.form("del_prov"):
+                pv_del=st.selectbox("Eliminar proveedor",provs_ed["nombre"].tolist(),key="pv_del_sel")
+                conf_pv=st.checkbox("Confirmo que quiero eliminar este proveedor")
+                if st.form_submit_button("🗑️ Eliminar"):
+                    if not conf_pv: st.error("Marca la casilla de confirmación.")
+                    else:
+                        pid_pv=int(provs_ed[provs_ed["nombre"]==pv_del]["id"].values[0])
+                        exe("UPDATE proveedores SET activo=0 WHERE id=%s",(pid_pv,))
+                        st.cache_data.clear(); st.success(f"'{pv_del}' eliminado."); st.rerun()
 
 # ─── GASTOS ──────────────────────────────────────────────────────────────────
 CATS_G=["Servicios públicos","Arriendo/Local","Publicidad","Aseo y limpieza",
